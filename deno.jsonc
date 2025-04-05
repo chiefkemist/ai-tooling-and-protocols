@@ -1,0 +1,46 @@
+{
+  "compilerOptions": {
+    "checkJs": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "npm:preact",
+    "lib": ["deno.ns", "dom", "dom.iterable", "dom.asynciterable", "esnext"],
+  },
+  "imports": {
+      "@/": "./src/",
+      "preact": "npm:preact@^10.26.4",
+      "preact/jsx-runtime": "npm:preact/jsx-runtime",
+      "preact-render-to-string": "npm:preact-render-to-string@^6.5.13",
+      "@std/assert": "jsr:@std/assert@1"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 4,
+    "semiColons": true,
+    "singleQuote": false,
+    "proseWrap": "preserve",
+    "include": ["src/"],
+    "exclude": ["node_modules", "dist", "src/client", "src/~partytown", "src/public"]
+  },
+  "lint": {
+    "include": ["src/"],
+    "exclude": [],
+    "rules": {
+      "tags": ["recommended"],
+      "include": ["ban-untagged-todo"],
+      "exclude": ["no-unused-vars"]
+    }
+  },
+  "tasks": {
+    "json-rpc:stdio-server": "deno run src/stdio/json-rpc_stdio-server.ts",
+    "json-rpc:stdio-client": "deno run --allow-run src/stdio/json-rpc_stdio-client.ts",
+    "basic:http-server": "deno run --allow-net src/http/basic_http.ts",
+    "stream_text_chunked:http-server": "deno run --allow-net src/http/stream_text_chunked.ts",
+    "stream_file_with_content_length:http-server": "deno run --allow-net --allow-read src/http/stream_file_with_content_length.ts",
+    "sse:http-server": "deno run --allow-net src/http/sse-server.tsx",
+    "json-rpc:http-server": "deno run --allow-net src/http/json-rpc_http-server.ts",
+    "json-rpc:http-client": "deno run --allow-net src/http/json-rpc_http-client.ts",
+    "dev": "deno run --watch src/main.ts",
+    "test": "deno test"
+  }
+}

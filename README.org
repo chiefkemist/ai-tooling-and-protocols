@@ -1,0 +1,596 @@
+
+* AI Tooling and Protocols
+
+** About Streaming HTTP Responses
+
+** About Server-Sent Events (SSE)
+
+** About JSON RPC Protocol
+
+** Standard I/O Transport
+
+*** JSON RPC Protocol
+
+**** StdIO Server
+
+#+begin_src deno :tangle src/stdio/json-rpc_stdio-server.ts :mkdirp yes :cache no
+
+// json-rpc_stdio-server.ts
+
+// Text encoder/decoder to work with Uint8Array
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+// Helper: Async line reader from a Deno.Reader.
+async function* readLines(reader: Deno.Reader): AsyncIterableIterator<string> {
+  let buf = "";
+  const buffer = new Uint8Array(1024);
+  while (true) {
+    const n = await reader.read(buffer);
+    if (n === null) break;
+    buf += decoder.decode(buffer.subarray(0, n));
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      yield line;
+    }
+  }
+  if (buf) yield buf;
+}
+
+// JSON‑RPC types
+interface JSONRPCRequest {
+  jsonrpc: "2.0";
+  id?: number | string | null;
+  method: string;
+  params?: unknown;
+}
+
+interface JSONRPCError {
+  code: number;
+  message: string;
+  data?: unknown;
+}
+
+interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  id?: number | string | null;
+  result?: unknown;
+  error?: JSONRPCError;
+}
+
+// Define available methods
+const methods: Record<string, (params: any) => unknown | Promise<unknown>> = {
+  // Echo method: returns the text provided in params.
+  echo: (params: { text: string }) => params.text,
+  // Add method: expects an array of two numbers.
+  add: (params: [number, number]) => params[0] + params[1],
+};
+
+// Process one JSON‑RPC message (assumed to be one complete line)
+async function processMessage(line: string): Promise<string> {
+  try {
+    const request = JSON.parse(line) as JSONRPCRequest;
+    if (request.jsonrpc !== "2.0" || !request.method) {
+      throw new Error("Invalid Request");
+    }
+    const methodFunc = methods[request.method];
+    if (!methodFunc) {
+      const response: JSONRPCResponse = {
+        jsonrpc: "2.0",
+        id: request.id ?? null,
+        error: { code: -32601, message: "Method not found" },
+      };
+      return JSON.stringify(response);
+    }
+    let result: unknown;
+    try {
+      result = await methodFunc(request.params);
+    } catch (err) {
+      const response: JSONRPCResponse = {
+        jsonrpc: "2.0",
+        id: request.id ?? null,
+        error: {
+          code: -32000,
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+      return JSON.stringify(response);
+    }
+    const response: JSONRPCResponse = {
+      jsonrpc: "2.0",
+      id: request.id ?? null,
+      result,
+    };
+    return JSON.stringify(response);
+  } catch (_err) {
+    const response: JSONRPCResponse = {
+      jsonrpc: "2.0",
+      id: null,
+      error: { code: -32700, message: "Parse error" },
+    };
+    return JSON.stringify(response);
+  }
+}
+
+// Main loop: read from stdin, process each line, and write the response to stdout.
+for await (const line of readLines(Deno.stdin)) {
+  // Process each complete JSON‑RPC message (line)
+  const response = await processMessage(line);
+  await Deno.stdout.write(encoder.encode(response + "\n"));
+}
+
+#+end_src
+
+
+**** StdIO Client
+
+#+begin_src deno :tangle src/stdio/json-rpc_stdio-client.ts :mkdirp yes :cache no
+
+// json-rpc_stdio-client.ts
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+// JSON‑RPC types (same as in the server)
+interface JSONRPCRequest {
+  jsonrpc: "2.0";
+  id?: number | string | null;
+  method: string;
+  params?: unknown;
+}
+
+interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  id?: number | string | null;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+}
+
+// Helper: read lines from a Deno.Reader
+async function* readLines(reader: Deno.Reader): AsyncIterableIterator<string> {
+  let buf = "";
+  const buffer = new Uint8Array(1024);
+  while (true) {
+    const n = await reader.read(buffer);
+    if (n === null) break;
+    buf += decoder.decode(buffer.subarray(0, n));
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) {
+      yield line;
+    }
+  }
+  if (buf) yield buf;
+}
+
+async function main() {
+  // Current script's directory
+  const currentDir = new URL(".", import.meta.url).pathname;
+  // Spawn the server process (assuming stdio_server.ts is in the same directory)
+  const serverProcess = Deno.run({
+    cmd: ["deno", "run", `${currentDir}/json-rpc_stdio-server.ts`],
+    stdout: "piped",
+    stdin: "piped",
+  });
+
+  // Helper function to send a JSON‑RPC request and wait for one response line.
+  async function sendRequest(request: JSONRPCRequest): Promise<JSONRPCResponse> {
+    const message = JSON.stringify(request) + "\n";
+    await serverProcess.stdin.write(encoder.encode(message));
+    // Read one line from the server's stdout.
+    for await (const line of readLines(serverProcess.stdout)) {
+      const response = JSON.parse(line) as JSONRPCResponse;
+      return response;
+    }
+    throw new Error("No response received");
+  }
+
+  // Example 1: Call "echo"
+  const echoRequest: JSONRPCRequest = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "echo",
+    params: { text: "Hello, STDIO RPC!" },
+  };
+
+  const echoResponse = await sendRequest(echoRequest);
+  console.log("Echo Response:", echoResponse);
+
+  // Example 2: Call "add"
+  const addRequest: JSONRPCRequest = {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "add",
+    params: [10, 15],
+  };
+
+  const addResponse = await sendRequest(addRequest);
+  console.log("Add Response:", addResponse);
+
+  // Close the server process's stdin (to signal end-of-input)
+  serverProcess.stdin.close();
+  // Wait for the process to finish
+  await serverProcess.status();
+  serverProcess.close();
+}
+
+await main();
+
+#+end_src
+
+#+RESULTS:
+
+** HTTP Transport
+
+*** Plain
+
+#+begin_src deno :perms -N :tangle src/http/basic_http.ts :mkdirp yes :cache no
+
+// basic_http.ts
+
+Deno.serve((_req) => {
+  return new Response("Hello World");
+});
+
+#+end_src
+
+*** Streaming HTTP for total length unknown
+
+#+begin_src deno :perms -N :tangle src/http/stream_text_chunked.ts :mkdirp yes :cache no
+
+// stream_text_chunked.ts
+
+const encoder = new TextEncoder();
+
+// Create a ReadableStream that enqueues text chunks every second.
+const stream = new ReadableStream({
+  start(controller) {
+    let count = 0;
+    const interval = setInterval(() => {
+      count++;
+      // Enqueue a new chunk of text.
+      controller.enqueue(encoder.encode(`Chunk ${count}\n`));
+      if (count >= 5) {
+        clearInterval(interval);
+        controller.close();
+      }
+    }, 1000);
+  },
+});
+
+// Start the HTTP server using Deno.serve.
+Deno.serve({ port: 8000 }, (req) => {
+  const url = new URL(req.url);
+  if (url.pathname === "/stream") {
+    // Since we don't know the total size, we use chunked encoding.
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/plain",
+        // Explicitly set Transfer-Encoding for clarity.
+        "Transfer-Encoding": "chunked",
+      },
+    });
+  }
+  // A static response with known length.
+  const staticText = "Hello from Deno!";
+  return new Response(staticText, {
+    headers: {
+      "Content-Type": "text/plain",
+      "Content-Length": staticText.length.toString(),
+    },
+  });
+});
+
+console.log("Server running on http://localhost:8000");
+
+#+end_src
+
+*** Streaming HTTP for total length known
+
+
+#+begin_src deno :perms -N :tangle src/http/stream_file_with_content_length.ts :mkdirp yes :cache no
+
+// stream_file_with_content_length.ts
+
+// Current script's directory
+const currentDir = new URL(".", import.meta.url).pathname;
+// Download big.txt from https://norvig.com/big.txt
+// Open the file for reading.
+const file = await Deno.open(`${currentDir}/big.txt`, { read: true });
+// Retrieve file information to determine the size.
+const fileInfo = await Deno.stat(`${currentDir}/big.txt`);
+const contentLength = fileInfo.size.toString();
+
+// Start the HTTP server.
+Deno.serve({ port: 8000 }, (req) => {
+  const url = new URL(req.url);
+  if (url.pathname === "/file") {
+    // Since we know the file size, we include the Content-Length header.
+    return new Response(file.readable, {
+      headers: {
+        "Content-Type": "text/plain",
+        "Content-Length": contentLength,
+      },
+    });
+  }
+  const infoText = "Visit /file to stream the file content with a Content-Length header.";
+  return new Response(infoText, {
+    headers: {
+      "Content-Type": "text/plain",
+      "Content-Length": infoText.length.toString(),
+    },
+  });
+});
+
+console.log("File streaming server running on http://localhost:8000");
+
+#+end_src
+
+#+RESULTS:
+
+*** Server-Sent Events (SSE)
+
+
+#+begin_src deno :perms -N :tangle src/http/sse-server.tsx :mkdirp yes :cache no
+
+// sse-server.tsx
+
+/** @jsxImportSource preact */
+import { h } from "npm:preact";
+import { render } from "npm:preact-render-to-string";
+
+const App = () => (
+  <html>
+    <head>
+      <title>SSE with TSX</title>
+    </head>
+    <body>
+      <h1>Server-Sent Events Demo</h1>
+      <div id="events"></div>
+      <script type="text/javascript" src="/client.js"></script>
+    </body>
+  </html>
+);
+
+// Create an SSE stream that sends an event every second.
+const encoder = new TextEncoder();
+const sseStream = new ReadableStream({
+  start(controller) {
+    let count = 0;
+    const interval = setInterval(() => {
+      count++;
+      const event = `data: Event ${count}\n\n`;
+      controller.enqueue(encoder.encode(event));
+      if (count >= 10) {
+        clearInterval(interval);
+        controller.close();
+      }
+    }, 1000);
+  },
+});
+
+Deno.serve({ port: 8000 }, async (req) => {
+  const url = new URL(req.url);
+  if (url.pathname === "/") {
+    // Render the HTML using Preact's render-to-string.
+    const html = render(<App />);
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    });
+  } else if (url.pathname === "/client.js") {
+    return new Response(
+      `const evtSource = new EventSource("/sse");
+          evtSource.onmessage = function(event) {
+            const eventsDiv = document.getElementById("events");
+            const p = document.createElement("p");
+            p.textContent = event.data;
+            eventsDiv.appendChild(p);
+          };`,
+      {
+        headers: {
+          "Content-Type": "text/javascript",
+        }
+      },
+    );
+  } else if (url.pathname === "/sse") {
+    // SSE endpoint.
+    return new Response(sseStream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+      },
+    });
+  }
+  return new Response("Not Found", { status: 404 });
+});
+
+console.log("Server running on http://localhost:8000");
+
+#+end_src
+
+*** JSON RPC Protocol
+
+**** HTTP Server
+
+#+begin_src deno :perms -N :tangle src/http/json-rpc_http-server.ts :mkdirp yes :cache no
+
+// json-rpc_http-server.ts
+
+// Define Types for JSON-RPC
+interface JSONRPCRequest {
+  jsonrpc: "2.0";
+  id?: number | string | null;
+  method: string;
+  params?: unknown;
+}
+
+interface JSONRPCError {
+  code: number;
+  message: string;
+  data?: unknown;
+}
+
+interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  id?: number | string | null;
+  result?: unknown;
+  error?: JSONRPCError;
+}
+
+// Define available methods
+const methods: Record<string, (params: any) => unknown | Promise<unknown>> = {
+  // Example: echoes back the text parameter
+  echo: (params: { text: string }) => params.text,
+  // Example: adds two numbers; expects an array of two numbers
+  add: (params: [number, number]) => params[0] + params[1],
+};
+
+async function handler(req: Request): Promise<Response> {
+  // Only allow POST requests
+  if (req.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  try {
+    const bodyText = await req.text();
+    const rpcReq = JSON.parse(bodyText) as JSONRPCRequest;
+
+    // Basic check: verify the JSON-RPC version and method field
+    if (rpcReq.jsonrpc !== "2.0" || !rpcReq.method) {
+      throw new Error("Invalid Request: missing jsonrpc or method");
+    }
+
+    const methodFunc = methods[rpcReq.method];
+    if (!methodFunc) {
+      // Method not found
+      const response: JSONRPCResponse = {
+        jsonrpc: "2.0",
+        id: rpcReq.id,
+        error: {
+          code: -32601,
+          message: `Method not found: ${rpcReq.method}`,
+        },
+      };
+      return new Response(JSON.stringify(response), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Execute the method (works with sync or async functions)
+    let result: unknown;
+    try {
+      result = await methodFunc(rpcReq.params);
+    } catch (err) {
+      // If method execution throws, return an error response
+      const response: JSONRPCResponse = {
+        jsonrpc: "2.0",
+        id: rpcReq.id ?? null,
+        error: {
+          code: -32000,
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+      return new Response(JSON.stringify(response), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    // Successful response
+    const response: JSONRPCResponse = {
+      jsonrpc: "2.0",
+      id: rpcReq.id ?? null,
+      result,
+    };
+    return new Response(JSON.stringify(response), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    // Return a Parse error if JSON parsing fails or other unexpected issues occur
+    const response: JSONRPCResponse = {
+      jsonrpc: "2.0",
+      id: null,
+      error: {
+        code: -32700,
+        message: "Parse error",
+      },
+    };
+    return new Response(JSON.stringify(response), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+// Start the server using the built-in Deno HTTP server
+console.log("Starting JSON-RPC server on http://localhost:8000");
+Deno.serve(handler, { port: 8000 });
+
+#+end_src
+
+#+RESULTS:
+: Starting JSON-RPC server on http://localhost:8000
+
+
+**** HTTP Client
+
+
+#+begin_src deno :perms -N :tangle src/http/json-rpc_http-client.ts :mkdirp yes :cache no
+
+// json-rpc_http-client.ts
+
+interface JSONRPCResponse {
+  jsonrpc: "2.0";
+  id?: number | string | null;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    data?: unknown;
+  };
+}
+
+async function jsonRPCRequest(
+  method: string,
+  params: unknown,
+  id: number | string = 1,
+): Promise<unknown> {
+  const payload = {
+    jsonrpc: "2.0",
+    method,
+    params,
+    id,
+  };
+
+  const response = await fetch("http://localhost:8000", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  const json: JSONRPCResponse = await response.json();
+  if (json.error) {
+    throw new Error(
+      `Error ${json.error.code}: ${json.error.message}: ${json.error.data}`,
+    );
+  }
+  return json.result;
+}
+
+// Example usage
+const echoResult = await jsonRPCRequest("echo", { text: "Hello, JSON-RPC!!" });
+console.log("Echo result:", echoResult);
+
+const addResult = await jsonRPCRequest("add", [18, 6]);
+console.log("Add result:", addResult);
+
+#+end_src
+
+#+RESULTS:
+: Echo result: Hello, JSON-RPC!!
+: Add result: 24
