@@ -700,9 +700,167 @@ deno task json-rpc:http-server
 deno task json-rpc:http-client
 #+end_src
 
-** Learning Resources
+** Model Context Protocol (MCP)
+
+The Model Context Protocol (MCP) is an open protocol that standardizes communication between AI applications and external data sources or tools. It uses JSON-RPC 2.0 as its message format and can work over various transports.
+
+*** Overview
+
+MCP defines standardized ways for:
+- Sharing contextual information with language models
+- Exposing tools and capabilities to AI systems
+- Building composable integrations and workflows
+
+Key components of the MCP architecture:
+- *Hosts*: LLM applications that initiate connections (e.g., Claude Desktop)
+- *Clients*: Connectors within the host application
+- *Servers*: Services that provide context and capabilities
+
+*** Key Features
+
+**** Server Features
+
+- *Resources*: Contextual data for the user or AI model
+- *Prompts*: Templated messages and workflows
+- *Tools*: Functions that the AI model can execute
+
+**** Client Features
+
+- *Sampling*: Server-initiated agentic behaviors and recursive LLM interactions
+- *Roots*: Resource anchors for navigating complex data
+
+**** Base Protocol
+
+- JSON-RPC message format
+- Stateful connections
+- Server and client capability negotiation
+- Authentication and authorization
+
+**** Transport Options
+
+MCP can operate over multiple transport mechanisms:
+- HTTP/HTTPS (most common)
+- WebSockets
+- Standard I/O
+- Custom transports
+
+*** MCP vs Traditional JSON-RPC
+
+While both use the JSON-RPC 2.0 message format, MCP adds:
+- Capability negotiation
+- Structured feature sets (resources, tools, prompts)
+- Security and authorization mechanisms
+- Progress tracking and cancellation
+- Dynamic tool discovery
+
+*** JetBrains MCP Proxy
+
+JetBrains provides an MCP implementation to integrate AI capabilities into their IDEs:
+
+**** Features
+
+- Seamless IDE context sharing with LLMs
+- Code-aware tool execution
+- Project structure navigation
+- Editor state synchronization
+
+**** Integration Points
+
+- Code completion and generation
+- Documentation assistance
+- Refactoring suggestions
+- Natural language code navigation
+
+**** Implementation
+
+The JetBrains MCP proxy:
+- Runs as a service within JetBrains IDEs
+- Exposes project resources via MCP
+- Provides IDE-specific tools for AI models
+- Handles authentication and state management
+
+*** Claude Desktop Integration
+
+Claude Desktop is an AI assistant application that supports MCP for extending its capabilities:
+
+**** Setup Process
+
+1. Download and install Claude Desktop
+2. Configure MCP servers in the app settings
+3. Grant necessary permissions
+4. Access extended capabilities through natural language
+
+**** Available Integrations
+
+- Filesystem access (read/write files, search)
+- Web search capabilities
+- Database connections
+- Custom tool execution
+
+**** Security Considerations
+
+Claude Desktop implements MCP security best practices:
+- Explicit user consent for all operations
+- Clear UI for reviewing and authorizing activities
+- Data privacy protections
+- Tool safety with proper authorization
+
+*** Running an MCP Server
+
+To run a simple MCP server:
+
+#+begin_src shell
+# Using NPM
+npx @modelcontextprotocol/server-filesystem
+
+# Or with custom configuration
+npx @modelcontextprotocol/server-filesystem --config custom_config.json
+#+end_src
+
+*** Example MCP Tool Implementation
+
+An MCP server can expose tools to AI models. Here's a simplified example:
+
+#+begin_src typescript
+// Define a tool in an MCP server
+const tools = {
+  "file.read": {
+    description: "Read a file from the filesystem",
+    parameters: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description: "Path to the file to read"
+        }
+      },
+      required: ["path"]
+    },
+    handler: async (params) => {
+      // Tool implementation
+      const { path } = params;
+      return { content: await fs.readFile(path, 'utf-8') };
+    }
+  }
+};
+#+end_src
+
+*** Security and Trust
+
+MCP enables powerful capabilities through arbitrary data access and code execution. Key security principles:
+
+- *User Consent and Control*: Explicit consent for all operations
+- *Data Privacy*: Protection of user data with appropriate access controls
+- *Tool Safety*: Clear understanding of tool behavior before authorization
+- *LLM Sampling Controls*: User approval of any AI sampling requests
+
+*** Learning Resources
 
 - [JSON-RPC 2.0 Specification](https://www.jsonrpc.org/specification)
 - [MDN: Server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
 - [HTTP/2 Specification](https://httpwg.org/specs/rfc7540.html)
 - [Deno Manual](https://deno.land/manual)
+- [Model Context Protocol Specification](https://spec.modelcontextprotocol.io/specification/2025-03-26/)
+- [MCP Quickstart Guide](https://modelcontextprotocol.io/quickstart/user)
+- [JetBrains MCP Repository](https://github.com/JetBrains/mcp-jetbrains)
+- [Python SDK for MCP](https://modelcontextprotocol.io/python)
