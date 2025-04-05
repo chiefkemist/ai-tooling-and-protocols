@@ -1,17 +1,57 @@
-
 * AI Tooling and Protocols
 
-** About Streaming HTTP Responses
+This repository demonstrates various communication protocols and transport mechanisms for building client-server applications. It focuses on how structured data can be exchanged between systems using different approaches.
 
-** About Server-Sent Events (SSE)
+** Communication Fundamentals
 
-** About JSON RPC Protocol
+*** Protocols vs Transports
+
+*Protocols* define the rules and formats for data exchange between systems. They specify:
+- Message structure and format
+- Request/response patterns
+- Error handling
+- State management
+
+*Transports* are the underlying mechanisms that carry the protocol messages between systems:
+- Standard I/O (stdin/stdout)
+- HTTP/HTTPS
+- WebSockets
+- TCP/UDP sockets
+- Message queues
+
+A protocol (like JSON-RPC) can run over different transports (like stdio or HTTP) with minimal changes to the core logic.
+
+*** Remote Procedure Calls (RPC)
+
+Remote Procedure Calls enable code on one system to invoke functions on another system as if they were local calls. Key characteristics:
+- Abstracts network communication details
+- Provides structured request/response patterns
+- Enables type-safe interactions (with proper schemas)
+- Can be synchronous or asynchronous
 
 ** Standard I/O Transport
 
+Standard I/O (stdin/stdout) provides a simple transport mechanism for inter-process communication. Benefits:
+- Built into all operating systems
+- Simple to implement
+- Works well for parent-child process communication
+- No network configuration required
+
+Limitations:
+- Only works between processes on the same machine
+- Limited error handling for transport issues
+- No built-in authentication
+
 *** JSON RPC Protocol
 
+The JSON-RPC protocol allows structured method calls between a client and server. When implemented over standard I/O:
+1. The client sends JSON-formatted requests to the server's stdin
+2. The server processes requests and sends responses to stdout
+3. The client reads responses from the server's stdout
+
 **** StdIO Server
+
+The server reads line-by-line from stdin, parses each line as a JSON-RPC request, executes the requested method, and writes the response to stdout.
 
 #+begin_src deno :tangle src/stdio/json-rpc_stdio-server.ts :mkdirp yes :cache no
 
@@ -125,6 +165,8 @@ for await (const line of readLines(Deno.stdin)) {
 
 **** StdIO Client
 
+The client spawns the server as a child process, writes JSON-RPC requests to its stdin, and reads responses from its stdout.
+
 #+begin_src deno :tangle src/stdio/json-rpc_stdio-client.ts :mkdirp yes :cache no
 
 // json-rpc_stdio-client.ts
@@ -227,7 +269,17 @@ await main();
 
 ** HTTP Transport
 
+HTTP provides a network-based transport mechanism with rich features:
+- Works across networks and the internet
+- Built-in status codes for error handling
+- Header-based metadata
+- Well-established security (HTTPS, authentication)
+- Stateless by default
+- Compatible with web browsers
+
 *** Plain
+
+The simplest HTTP pattern is a single request followed by a single response.
 
 #+begin_src deno :perms -N :tangle src/http/basic_http.ts :mkdirp yes :cache no
 
@@ -240,6 +292,8 @@ Deno.serve((_req) => {
 #+end_src
 
 *** Streaming HTTP for total length unknown
+
+When the total size of a response is unknown in advance, HTTP chunked transfer encoding allows the server to stream data to the client in pieces:
 
 #+begin_src deno :perms -N :tangle src/http/stream_text_chunked.ts :mkdirp yes :cache no
 
@@ -292,6 +346,7 @@ console.log("Server running on http://localhost:8000");
 
 *** Streaming HTTP for total length known
 
+When total size is known in advance, the server can set Content-Length and stream the response efficiently:
 
 #+begin_src deno :perms -N :tangle src/http/stream_file_with_content_length.ts :mkdirp yes :cache no
 
@@ -335,6 +390,11 @@ console.log("File streaming server running on http://localhost:8000");
 
 *** Server-Sent Events (SSE)
 
+Server-Sent Events (SSE) is a specialized streaming protocol for real-time updates:
+- One-way communication from server to client
+- Built-in reconnection handling
+- Event-based messaging with optional event types
+- Compatible with most browsers without special libraries
 
 #+begin_src deno :perms -N :tangle src/http/sse-server.tsx :mkdirp yes :cache no
 
@@ -415,6 +475,11 @@ console.log("Server running on http://localhost:8000");
 #+end_src
 
 *** JSON RPC Protocol
+
+JSON-RPC can be implemented over HTTP by:
+1. Client sends JSON-RPC requests as HTTP POST bodies
+2. Server processes the request and returns JSON-RPC responses
+3. HTTP status codes provide transport-level error information
 
 **** HTTP Server
 
@@ -539,7 +604,6 @@ Deno.serve(handler, { port: 8000 });
 
 **** HTTP Client
 
-
 #+begin_src deno :perms -N :tangle src/http/json-rpc_http-client.ts :mkdirp yes :cache no
 
 // json-rpc_http-client.ts
@@ -594,3 +658,51 @@ console.log("Add result:", addResult);
 #+RESULTS:
 : Echo result: Hello, JSON-RPC!!
 : Add result: 24
+
+** Protocol and Transport Comparison
+
+| Feature                 | StdIO Transport     | HTTP Transport      |
+|-------------------------|--------------------|---------------------|
+| Network Support         | Same machine only  | Local and remote    |
+| Connection State        | Persistent         | Stateless by default|
+| Error Handling          | Application-level  | Transport + app level|
+| Streaming Support       | Line-by-line       | Multiple mechanisms |
+| Security                | Process isolation  | TLS, Auth headers   |
+| Browser Compatibility   | No                 | Yes                 |
+| Implementation Complexity| Low               | Medium              |
+
+** Running the Examples
+
+*** StdIO Examples
+#+begin_src shell
+# Run the JSON-RPC over StdIO example
+deno task json-rpc:stdio-client
+#+end_src
+
+*** HTTP Examples
+#+begin_src shell
+# Run the basic HTTP server
+deno task basic:http-server
+
+# Run the chunked streaming example
+deno task stream_text_chunked:http-server
+
+# Run the content-length streaming example
+deno task stream_file_with_content_length:http-server
+
+# Run the SSE example
+deno task sse:http-server
+
+# Run the JSON-RPC over HTTP server
+deno task json-rpc:http-server
+
+# In another terminal, run the JSON-RPC client
+deno task json-rpc:http-client
+#+end_src
+
+** Learning Resources
+
+- [JSON-RPC 2.0 Specification](https://www.jsonrpc.org/specification)
+- [MDN: Server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
+- [HTTP/2 Specification](https://httpwg.org/specs/rfc7540.html)
+- [Deno Manual](https://deno.land/manual)
